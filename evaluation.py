@@ -77,10 +77,10 @@ if __name__ == '__main__':
     console.log(args)
     
     # paths
-    ann_test = pd.read_csv('./dataset/Fitzpatrick-17k/processed/rand_seed={}/split/test.csv'.format(args.rand_seed), index_col=0)
+    ann_test = pd.read_csv('/kaggle/working/FairAdaBN-main/dataset/Fitzpatrick-17k/processed/rand_seed={}/split/test.csv'.format(args.rand_seed), index_col=0)
     ann_test.reset_index(inplace=True)
 
-    test_pkl = r'..\datasets\fitzpatrick17k\data\finalfitz17k'
+    test_pkl = r'/kaggle/input/datasets/njihsenge/fitzpatrick17k/fitzpatrick17k/data/finalfitz17k'
 
     # standard transform
     transform = transforms.Compose([

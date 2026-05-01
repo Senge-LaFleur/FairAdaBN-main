@@ -220,13 +220,13 @@ if __name__ == '__main__':
     console.log(args)
     
     # paths
-    ann_train = pd.read_csv('./dataset/Fitzpatrick-17k/processed/rand_seed={}/split/train.csv'.format(args.rand_seed), index_col=0)
-    ann_valid = pd.read_csv('./dataset/Fitzpatrick-17k/processed/rand_seed={}/split/val.csv'.format(args.rand_seed), index_col=0)
+    ann_train = pd.read_csv('/kaggle/working/FairAdaBN-main/dataset/Fitzpatrick-17k/processed/rand_seed={}/split/train.csv'.format(args.rand_seed), index_col=0)
+    ann_valid = pd.read_csv('/kaggle/working/FairAdaBN-main/dataset/Fitzpatrick-17k/processed/rand_seed={}/split/val.csv'.format(args.rand_seed), index_col=0)
     ann_train.reset_index(inplace=True)
     ann_valid.reset_index(inplace=True)
     
-    train_pkl = r'..\datasets\fitzpatrick17k\data\finalfitz17k'
-    valid_pkl = r'..\datasets\fitzpatrick17k\data\finalfitz17k'
+    train_pkl = r'/kaggle/input/datasets/njihsenge/fitzpatrick17k/fitzpatrick17k/data/finalfitz17k'
+    valid_pkl = r'/kaggle/input/datasets/njihsenge/fitzpatrick17k/fitzpatrick17k/data/finalfitz17k'
 
 
     # standard transform
