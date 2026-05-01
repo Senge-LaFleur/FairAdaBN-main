@@ -36,3 +36,5 @@ python fate_eval.py --baseline_exp 3 --mitigation_exp 4 --rand_seed 0 --method f
 # FATE: Baseline vs FairAdaBN+Lmi
 python fate_eval.py --baseline_exp 3 --mitigation_exp 5 --rand_seed 0 --method best
 python fate_eval.py --baseline_exp 3 --mitigation_exp 5 --rand_seed 0 --method final
+
+!python /kaggle/working/FairAdaBN-main/fate_eval.py --baseline_exp 3 --mitigation_exp 5 --rand_seed 0 --method best
