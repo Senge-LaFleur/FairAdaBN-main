@@ -1,0 +1,32 @@
+# ── Model weights ─────────────────────────────────────────────────────────────
+weights/
+
+# ── Training outputs ──────────────────────────────────────────────────────────
+logs/
+preds/
+fair_scores/
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.env
+.venv/
+env/
+venv/
+
+# ── OS / editor artefacts ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ── Large dataset files (keep CSVs that are version-controlled intentionally) ─
+*.h5
+*.hdf5
+*.pkl
+*.npy
+*.npz
