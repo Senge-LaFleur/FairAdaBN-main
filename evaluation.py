@@ -10,6 +10,12 @@ from Fitz17k import Fitz17kTest
 from utils import *
 from tqdm import tqdm
 
+# Always show all columns/rows — no truncation
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+pd.set_option('display.width', None)
+pd.set_option('display.float_format', '{:.6f}'.format)
+
 def test(net, p, up):
     # inits
     result_df = pd.DataFrame(columns=['y_pred', 'y_true', 'sensitive'])
@@ -56,7 +62,9 @@ def test(net, p, up):
     fair_metrics = Fairness_Metrics(result_df)
     fair_scores = pd.DataFrame(fair_metrics.avg_scores, index=[0])
     
-    console.log(fair_scores)
+    print('\n=== Fairness & Classification Scores ===')
+    print(fair_scores.to_string(index=False))
+    print('=========================================\n')
         
     return result_df, fair_scores
 
