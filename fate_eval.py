@@ -33,6 +33,9 @@ FC_LABELS = {
     'equal_opp_0': 'EOpp0 (TNR gap)',
     'equal_opp_1': 'EOpp1 (TPR gap)',
     'equal_odds':  'EOdd  (TPR+TNR gap)',
+    'eom':         'EOM   (Opp. Margin)',
+    'pqd':         'PQD   (Quality Disp.)',
+    'dpm':         'DPM   (Parity Margin)',
 }
 
 
@@ -77,7 +80,19 @@ if __name__ == '__main__':
         FC_b = baseline[fc_key].values[0]
         FC_m = mitigation[fc_key].values[0]
         fairness_change = (FC_m - FC_b) / FC_b if FC_b != 0 else float('nan')
-        FATE = (ACC_m - ACC_b) / ACC_b - LAM * fairness_change
+        
+        # For equal_opp_0, equal_opp_1, equal_odds, LOWER is fairer.
+        # So a decrease in value (fairness_change < 0) means improved fairness.
+        # FATE subtracts LAM * fairness_change.
+        if fc_key in ['equal_opp_0', 'equal_opp_1', 'equal_odds']:
+            FATE = (ACC_m - ACC_b) / ACC_b - LAM * fairness_change
+        
+        # For eom, pqd, dpm, HIGHER is fairer.
+        # So an increase in value (fairness_change > 0) means improved fairness.
+        # FATE adds LAM * fairness_change.
+        else:
+            FATE = (ACC_m - ACC_b) / ACC_b + LAM * fairness_change
+            
         direction = 'IMPROVED' if FATE > 0 else 'DEGRADED'
         print(f"  FATE_{fc_key:<12}  {FATE:+.4f}   ({direction})")
         print(f"    Baseline {fc_name}: {FC_b:.4f}   Mitigation: {FC_m:.4f}   change: {fairness_change:+.4f}")

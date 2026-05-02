@@ -88,6 +88,53 @@ class Fairness_Metrics():
         up_tpr = self.cm_up.TPR[pos_label]
         
         return np.abs(p_tpr - up_tpr + p_tnr - up_tnr)
+
+    def eom(self):
+        '''
+        Equality of Opportunity Metric (EOM)
+        Average over classes of min/max TPR ratio across groups.
+        '''
+        ratios = []
+        for cls in range(7):
+            tpr_p = self.cm_p.TPR.get(cls, 'None')
+            tpr_up = self.cm_up.TPR.get(cls, 'None')
+            if tpr_p == 'None' or tpr_up == 'None':
+                continue
+            tprs = [tpr_p, tpr_up]
+            mn, mx = min(tprs), max(tprs)
+            if mx == 0:
+                continue
+            ratios.append(mn / mx)
+        return float(np.mean(ratios)) if ratios else float('nan')
+
+    def pqd(self):
+        '''
+        Predictive Quality Disparity (PQD)
+        min/max accuracy ratio across groups.
+        '''
+        acc_p = (self.p_group.y_pred == self.p_group.y_true).mean()
+        acc_up = (self.up_group.y_pred == self.up_group.y_true).mean()
+        accs = [acc_p, acc_up]
+        mn, mx = min(accs), max(accs)
+        if mx == 0:
+            return float('nan')
+        return float(mn / mx)
+
+    def dpm(self):
+        '''
+        Demographic Parity Metric (DPM)
+        Average over classes of min/max prediction rate ratio across groups.
+        '''
+        ratios = []
+        for cls in range(7):
+            rate_p = (self.p_group.y_pred == cls).mean()
+            rate_up = (self.up_group.y_pred == cls).mean()
+            rates = [rate_p, rate_up]
+            mn, mx = min(rates), max(rates)
+            if mx == 0:
+                continue
+            ratios.append(mn / mx)
+        return float(np.mean(ratios)) if ratios else float('nan')
     
     def get_average(self):
         scores = {
@@ -98,7 +145,10 @@ class Fairness_Metrics():
             'statistical_parity': np.mean([self.statistical_parity(pos_label) for pos_label in range(7)]),
             'equal_opp_0': np.mean([self.equal_opportunity_0(pos_label) for pos_label in range(7)]),
             'equal_opp_1': np.mean([self.equal_opportunity_1(pos_label) for pos_label in range(7)]),
-            'equal_odds': np.mean([self.equal_odds(pos_label) for pos_label in range(7)])
+            'equal_odds': np.mean([self.equal_odds(pos_label) for pos_label in range(7)]),
+            'eom': self.eom(),
+            'pqd': self.pqd(),
+            'dpm': self.dpm()
         }
         
         return scores
