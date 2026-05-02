@@ -8,8 +8,7 @@ from basemodels import cusResNet152
 from Fitz17k import Fitz17k
 from model import resnet152
 from rich.console import Console
-from rich.progress import (BarColumn, Progress, TextColumn, TimeElapsedColumn,
-                           TimeRemainingColumn)
+import time
 from torch.utils.data import WeightedRandomSampler
 from torchvision import transforms
 from utils import *
@@ -62,7 +61,7 @@ class Fitz17k_Lmi(Fitz17k):
                                
         return idx, img1, img2, label, sensitive
 
-def train(net, criterion, train_loader, valid_loader, optimizer, max_epoch, args, valid_interval=10):
+def train(net, criterion, train_loader, valid_loader, optimizer, max_epoch, args, valid_interval=1):
     # inits
     train_losses = []
     train_accs = []
@@ -71,137 +70,128 @@ def train(net, criterion, train_loader, valid_loader, optimizer, max_epoch, args
     best_acc = 0
     spd = SPD_Loss()
   
-    with Progress(TextColumn("[progress.description]{task.description}"),
-                  BarColumn(),
-                  TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                  TimeRemainingColumn(),
-                  TimeElapsedColumn(), console=console) as progress:
-        epoch_tqdm = progress.add_task(description="epoch progress", total=max_epoch)
-        train_tqdm = progress.add_task(description="train progress", total=len(train_loader))
-        valid_tqdm = progress.add_task(description="valid progress", total=len(valid_loader))
-        # start iteration
-        for iteration in range(max_epoch):
-            console.rule('epoch {}'.format(iteration))     
-                   
-            # train
+    n_epochs = max_epoch
+    n_train  = len(train_loader)
+    n_valid  = len(valid_loader)
+
+    for iteration in range(n_epochs):
+        t0 = time.time()
+
+        # train
+        epoch_loss     = AverageMeter()
+        epoch_acc      = AverageMeter()
+        epoch_loss_ce  = AverageMeter()
+        epoch_loss_spd = AverageMeter()
+        epoch_loss_mi  = AverageMeter()
+        net.train()
+        for batch_idx, (_, image, image_aug, label, sensitive_attribute) in enumerate(train_loader):
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            image, image_aug, label, sensitive_attribute = image.to(device), image_aug.to(device), label.to(device), sensitive_attribute.to(device)
+
+            task_0_idx = (sensitive_attribute == 0).nonzero(as_tuple=True)
+            task_1_idx = (sensitive_attribute == 1).nonzero(as_tuple=True)
+
+            image_0, image_aug_0, label_0, sensitive_attribute_0 = image[task_0_idx], image_aug[task_0_idx], label[task_0_idx], sensitive_attribute[task_0_idx]
+            image_1, image_aug_1, label_1, sensitive_attribute_1 = image[task_1_idx], image_aug[task_1_idx], label[task_1_idx], sensitive_attribute[task_1_idx]
+
+            label_0, label_1 = label_0.squeeze(dim=1), label_1.squeeze(dim=1)
+
+            output_0, feature_0 = net(image_0, task_idx=0)
+            loss_0 = criterion(output_0, label_0.long())
+            preds_0 = output_0.argmax(dim=1)
+
+            if image_0.shape[0] != 0:
+                _, feature_aug_0 = net(image_aug_0, task_idx=0)
+                loss_mi_0 = mi_loss(feature_0, feature_aug_0)
+            else:
+                loss_mi_0 = 0
+
+            output_1, feature_1 = net(image_1, task_idx=1)
+            loss_1 = criterion(output_1, label_1.long())
+            preds_1 = output_1.argmax(dim=1)
+
+            if image_1.shape[0] != 0:
+                _, feature_aug_1 = net(image_aug_1, task_idx=1)
+                loss_mi_1 = mi_loss(feature_1, feature_aug_1)
+            else:
+                loss_mi_1 = 0
+
+            loss_spd = spd(torch.cat([preds_0, preds_1]), torch.cat([sensitive_attribute_0, sensitive_attribute_1]))
+            loss_mi = loss_mi_0 + loss_mi_1
+            loss = loss_0 + loss_1 + loss_spd + args.lambda_mi * loss_mi
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss.update(loss.item())
+            epoch_loss_ce.update(loss_0.item() + loss_1.item())
+            epoch_loss_spd.update(loss_spd.item())
+            epoch_loss_mi.update(loss_mi.item() if isinstance(loss_mi, torch.Tensor) else loss_mi)
+            if label_0.shape[0] != 0:
+                epoch_acc.update((sum(preds_0 == label_0.squeeze()) / label_0.shape[0]).item())
+            if label_1.shape[0] != 0:
+                epoch_acc.update((sum(preds_1 == label_1.squeeze()) / label_1.shape[0]).item())
+
+            print(f'\r  epoch [{iteration+1}/{n_epochs}]  train [{batch_idx+1}/{n_train}]',
+                  end='', flush=True)
+
+        train_losses.append(epoch_loss.avg)
+        train_accs.append(epoch_acc.avg)
+        scheduler.step()
+
+        # valid
+        v_acc_str = v_loss_str = 'N/A'
+        if iteration % valid_interval == 0:
             epoch_loss = AverageMeter()
-            epoch_acc = AverageMeter()          
-            epoch_loss_ce = AverageMeter()
-            epoch_loss_spd = AverageMeter()
-            epoch_loss_mi = AverageMeter()
-            net.train()
-            for _, image, image_aug, label, sensitive_attribute in train_loader:
+            epoch_acc  = AverageMeter()
+            net.eval()
+            for batch_idx, (_, image, label, sensitive_attribute) in enumerate(valid_loader):
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                image, image_aug, label, sensitive_attribute = image.to(device), image_aug.to(device), label.to(device), sensitive_attribute.to(device)
-                
+                image, label, sensitive_attribute = image.to(device), label.to(device), sensitive_attribute.to(device)
+
                 task_0_idx = (sensitive_attribute == 0).nonzero(as_tuple=True)
                 task_1_idx = (sensitive_attribute == 1).nonzero(as_tuple=True)
-                
-                image_0, image_aug_0, label_0, sensitive_attribute_0 = image[task_0_idx], image_aug[task_0_idx], label[task_0_idx], sensitive_attribute[task_0_idx]
-                image_1, image_aug_1, label_1, sensitive_attribute_1 = image[task_1_idx], image_aug[task_1_idx], label[task_1_idx], sensitive_attribute[task_1_idx]
-                
-                label_0, label_1 = label_0.squeeze(dim=1), label_1.squeeze(dim=1)
-                
-                # compute loss on group 0
-                output_0, feature_0 = net(image_0, task_idx=0)
-                loss_0 = criterion(output_0, label_0.long())
-                preds_0 = output_0.argmax(dim=1)
-                
-                if image_0.shape[0] != 0:
-                    _, feature_aug_0 = net(image_aug_0, task_idx=0)
-                    loss_mi_0 = mi_loss(feature_0, feature_aug_0)
-                else:
-                    loss_mi_0 = 0
 
-                output_1, feature_1 = net(image_1, task_idx=1)
-                loss_1 = criterion(output_1, label_1.long())
-                preds_1 = output_1.argmax(dim=1)
-                
-                if image_1.shape[0] != 0:
-                    _, feature_aug_1 = net(image_aug_1, task_idx=1)
-                    loss_mi_1 = mi_loss(feature_1, feature_aug_1)
-                else:
-                    loss_mi_1 = 0
-                
-                # combine
-                loss_spd = spd(torch.cat([preds_0, preds_1]), torch.cat([sensitive_attribute_0, sensitive_attribute_1]))
-                loss_mi = loss_mi_0 + loss_mi_1
-                loss = loss_0 + loss_1 + loss_spd + args.lambda_mi * loss_mi
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                                
+                image_0, label_0 = image[task_0_idx], label[task_0_idx]
+                image_1, label_1 = image[task_1_idx], label[task_1_idx]
+
+                label_0, label_1 = label_0.squeeze(dim=1), label_1.squeeze(dim=1)
+
+                print(f'\r  epoch [{iteration+1}/{n_epochs}]  valid [{batch_idx+1}/{n_valid}]',
+                      end='', flush=True)
+
+                with torch.no_grad():
+                    output, _ = net(image_0, task_idx=0)
+                    loss_0 = criterion(output, label_0.long())
+                    preds_0 = output.argmax(dim=1)
+
+                    output, _ = net(image_1, task_idx=1)
+                    loss_1 = criterion(output, label_1.long())
+                    preds_1 = output.argmax(dim=1)
+
+                loss = loss_0 + loss_1
                 epoch_loss.update(loss.item())
-                epoch_loss_ce.update(loss_0.item() + loss_1.item())
-                epoch_loss_spd.update(loss_spd.item())
-                epoch_loss_mi.update(loss_mi.item() if isinstance(loss_mi, torch.Tensor) else loss_mi)
-                if label_0.shape[0] != 0:
-                    epoch_acc.update((sum(preds_0 == label_0.squeeze()) / label_0.shape[0]).item())
+                epoch_acc.update((sum(preds_0 == label_0.squeeze()) / label_0.shape[0]).item())
                 if label_1.shape[0] != 0:
                     epoch_acc.update((sum(preds_1 == label_1.squeeze()) / label_1.shape[0]).item())
-                
-                progress.advance(train_tqdm, advance=1)
-            
-            console.log('train acc = {:.4f}\ttrain loss = {:.4f}\tce loss = {:.4f}\tspd loss = {:.4f}\tmi loss = {:.4f}'.format(epoch_acc.avg, epoch_loss.avg, epoch_loss_ce.avg, epoch_loss_spd.avg, epoch_loss_mi.avg))
-            train_losses.append(epoch_loss.avg)
-            train_accs.append(epoch_acc.avg)
-            progress.reset(train_tqdm)
-            
-            scheduler.step()
-            
-            # valid
-            if iteration % valid_interval == 0:
-                epoch_loss = AverageMeter()
-                epoch_acc = AverageMeter()
-                net.eval()
-                for _, image, label, sensitive_attribute in valid_loader:
-                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                    image, label, sensitive_attribute = image.to(device), label.to(device), sensitive_attribute.to(device)
-                    
-                    task_0_idx = (sensitive_attribute == 0).nonzero(as_tuple=True)
-                    task_1_idx = (sensitive_attribute == 1).nonzero(as_tuple=True)
-                    
-                    image_0, label_0 = image[task_0_idx], label[task_0_idx]
-                    image_1, label_1 = image[task_1_idx], label[task_1_idx]
-                    
-                    label_0, label_1 = label_0.squeeze(dim=1), label_1.squeeze(dim=1)
-        
-                    with torch.no_grad():
-                        # compute loss on group 0
-                        output, _ = net(image_0, task_idx=0)
-                        loss_0 = criterion(output, label_0.long())
-                        preds_0 = output.argmax(dim=1)
 
-                        # compute loss on group 1
-                        output, _ = net(image_1, task_idx=1)
-                        loss_1 = criterion(output, label_1.long())
-                        preds_1 = output.argmax(dim=1)
-                    
-                    # combine
-                    loss = loss_0 + loss_1 
-                                    
-                    epoch_loss.update(loss.item())
-                    epoch_acc.update((sum(preds_0 == label_0.squeeze()) / label_0.shape[0]).item())
-                    
-                    if label_1.shape[0] != 0:
-                        epoch_acc.update((sum(preds_1 == label_1.squeeze()) / label_1.shape[0]).item())
-                    
-                    progress.advance(valid_tqdm, advance=1)
-                
-                console.log('valid acc = {:.4f}\tvalid loss = {:.4f}'.format(epoch_acc.avg, epoch_loss.avg))
-                valid_losses.append(epoch_loss.avg)
-                valid_accs.append(epoch_acc.avg)
-                
-                if epoch_acc.avg > best_acc:
-                    best_acc = epoch_acc.avg
-                    console.log('save model with acc: {:.4f}'.format(best_acc))
-                    save_best_model(net, args.exp_id, args.rand_seed)
-                
-                progress.reset(valid_tqdm)
- 
-            progress.advance(epoch_tqdm, advance=1)
-            
+            valid_losses.append(epoch_loss.avg)
+            valid_accs.append(epoch_acc.avg)
+            v_acc_str  = f'{epoch_acc.avg:.4f}'
+            v_loss_str = f'{epoch_loss.avg:.4f}'
+
+            if epoch_acc.avg > best_acc:
+                best_acc = epoch_acc.avg
+                save_best_model(net, args.exp_id, args.rand_seed)
+
+        elapsed = time.time() - t0
+        print(f'\repoch [{iteration+1:>4}/{n_epochs}]  '
+              f'train acc={train_accs[-1]:.4f}  loss={train_losses[-1]:.4f}  '
+              f'mi={epoch_loss_mi.avg:.4f}  '
+              f'valid acc={v_acc_str}  valid loss={v_loss_str}  '
+              f'({elapsed:.0f}s)')
+
     return train_accs, train_losses, valid_accs, valid_losses
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train settings')

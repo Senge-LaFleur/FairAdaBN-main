@@ -22,97 +22,93 @@ from basemodels import cusResNet152
 from Fitz17k import Fitz17k
 from model import resnet152
 from rich.console import Console
-from rich.progress import (BarColumn, Progress, TextColumn, TimeElapsedColumn,
-                           TimeRemainingColumn)
+import time
 from torch.utils.data import WeightedRandomSampler
 from torchvision import transforms
 from utils import *
 
 
-def train(net, criterion, train_loader, valid_loader, optimizer, max_epoch, valid_interval=10):
+def train(net, criterion, train_loader, valid_loader, optimizer, max_epoch, valid_interval=1):
     train_losses = []
     train_accs = []
     valid_losses = []
     valid_accs = []
     best_acc = 0
 
-    with Progress(TextColumn("[progress.description]{task.description}"),
-                  BarColumn(),
-                  TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                  TimeRemainingColumn(),
-                  TimeElapsedColumn(), console=console) as progress:
-        epoch_tqdm = progress.add_task(description="epoch progress", total=max_epoch)
-        train_tqdm = progress.add_task(description="train progress", total=len(train_loader))
-        valid_tqdm = progress.add_task(description="valid progress", total=len(valid_loader))
+    n_epochs   = max_epoch
+    n_train    = len(train_loader)
+    n_valid    = len(valid_loader)
 
-        for iteration in range(max_epoch):
-            console.rule('epoch {}'.format(iteration))
+    for iteration in range(n_epochs):
+        t0 = time.time()
 
-            # ── train ─────────────────────────────────────────────────────────
+        # ── train ─────────────────────────────────────────────────────────────
+        epoch_loss = AverageMeter()
+        epoch_acc  = AverageMeter()
+        net.train()
+
+        for batch_idx, (_, image, label, sensitive_attribute) in enumerate(train_loader):
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            image, label = image.to(device), label.to(device)
+            label = label.squeeze(dim=1).long()
+
+            output, _ = net(image, task_idx=0)
+            loss = criterion(output, label)
+            preds = output.argmax(dim=1)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss.update(loss.item())
+            epoch_acc.update((sum(preds == label) / label.shape[0]).item())
+
+            # single in-place progress line — overwrites itself each batch
+            print(f'\r  epoch progress [{iteration+1}/{n_epochs}]  '
+                  f'train [{batch_idx+1}/{n_train}]', end='', flush=True)
+
+        train_losses.append(epoch_loss.avg)
+        train_accs.append(epoch_acc.avg)
+        scheduler.step()
+
+        # ── validate ──────────────────────────────────────────────────────────
+        v_acc_str = v_loss_str = 'N/A'
+        if iteration % valid_interval == 0:
             epoch_loss = AverageMeter()
             epoch_acc  = AverageMeter()
-            net.train()
+            net.eval()
 
-            for _, image, label, sensitive_attribute in train_loader:
+            for batch_idx, (_, image, label, sensitive_attribute) in enumerate(valid_loader):
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 image, label = image.to(device), label.to(device)
-
                 label = label.squeeze(dim=1).long()
 
-                # Single forward pass — no fairness split, no SPD loss
-                output, _ = net(image, task_idx=0)
-                loss = criterion(output, label)
-                preds = output.argmax(dim=1)
+                print(f'\r  epoch progress [{iteration+1}/{n_epochs}]  '
+                      f'valid [{batch_idx+1}/{n_valid}]', end='', flush=True)
 
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                with torch.no_grad():
+                    output, _ = net(image, task_idx=0)
+                    loss  = criterion(output, label)
+                    preds = output.argmax(dim=1)
 
                 epoch_loss.update(loss.item())
                 epoch_acc.update((sum(preds == label) / label.shape[0]).item())
-                progress.advance(train_tqdm, advance=1)
 
-            console.log('train acc = {:.4f}\ttrain loss = {:.4f}'.format(
-                epoch_acc.avg, epoch_loss.avg))
-            train_losses.append(epoch_loss.avg)
-            train_accs.append(epoch_acc.avg)
-            progress.reset(train_tqdm)
+            valid_losses.append(epoch_loss.avg)
+            valid_accs.append(epoch_acc.avg)
+            v_acc_str  = f'{epoch_acc.avg:.4f}'
+            v_loss_str = f'{epoch_loss.avg:.4f}'
 
-            scheduler.step()
+            if epoch_acc.avg > best_acc:
+                best_acc = epoch_acc.avg
+                save_best_model(net, args.exp_id, args.rand_seed)
 
-            # ── validate ──────────────────────────────────────────────────────
-            if iteration % valid_interval == 0:
-                epoch_loss = AverageMeter()
-                epoch_acc  = AverageMeter()
-                net.eval()
-
-                for _, image, label, sensitive_attribute in valid_loader:
-                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                    image, label = image.to(device), label.to(device)
-                    label = label.squeeze(dim=1).long()
-
-                    with torch.no_grad():
-                        output, _ = net(image, task_idx=0)
-                        loss  = criterion(output, label)
-                        preds = output.argmax(dim=1)
-
-                    epoch_loss.update(loss.item())
-                    epoch_acc.update((sum(preds == label) / label.shape[0]).item())
-                    progress.advance(valid_tqdm, advance=1)
-
-                console.log('valid acc = {:.4f}\tvalid loss = {:.4f}'.format(
-                    epoch_acc.avg, epoch_loss.avg))
-                valid_losses.append(epoch_loss.avg)
-                valid_accs.append(epoch_acc.avg)
-
-                if epoch_acc.avg > best_acc:
-                    best_acc = epoch_acc.avg
-                    console.log('save model with acc: {:.4f}'.format(best_acc))
-                    save_best_model(net, args.exp_id, args.rand_seed)
-
-                progress.reset(valid_tqdm)
-
-            progress.advance(epoch_tqdm, advance=1)
+        elapsed = time.time() - t0
+        # ── single summary line per epoch ─────────────────────────────────────
+        print(f'\repoch [{iteration+1:>4}/{n_epochs}]  '
+              f'train acc={train_accs[-1]:.4f}  train loss={train_losses[-1]:.4f}  '
+              f'valid acc={v_acc_str}  valid loss={v_loss_str}  '
+              f'({elapsed:.0f}s)')
 
     return train_accs, train_losses, valid_accs, valid_losses
 

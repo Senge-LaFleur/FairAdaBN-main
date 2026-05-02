@@ -38,3 +38,13 @@ python fate_eval.py --baseline_exp 3 --mitigation_exp 5 --rand_seed 0 --method b
 python fate_eval.py --baseline_exp 3 --mitigation_exp 5 --rand_seed 0 --method final
 
 !python /kaggle/working/FairAdaBN-main/fate_eval.py --baseline_exp 3 --mitigation_exp 5 --rand_seed 0 --method best
+
+
+
+!python /kaggle/working/FairAdaBN-main/main_baseline.py --exp_id 3 --rand_seed 0 --max_epoch 10
+!python /kaggle/working/FairAdaBN-main/evaluation.py --exp_id 3 --rand_seed 0 --method best
+!python /kaggle/working/FairAdaBN-main/main.py --exp_id 4 --rand_seed 0 --max_epoch 10
+!python /kaggle/working/FairAdaBN-main/evaluation.py --exp_id 4 --rand_seed 0 --method best
+!python /kaggle/working/FairAdaBN-main/main_Lmi.py --exp_id 5 --rand_seed 0 --max_epoch 10
+!python /kaggle/working/FairAdaBN-main/evaluation.py --exp_id 5 --rand_seed 0 --method best
+
