@@ -37,7 +37,7 @@ FC_LABELS = {
 
 
 def load_scores(exp_id, rand_seed, method):
-    path = f'fair_scores/rand_seed={rand_seed}_exp_{exp_id}_{method}_fairness_scores.csv'
+    path = f'/kaggle/working/fair_scores/rand_seed={rand_seed}_exp_{exp_id}_{method}_fairness_scores.csv'
     try:
         return pd.read_csv(path, index_col=0)
     except FileNotFoundError:
