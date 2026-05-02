@@ -186,6 +186,6 @@ if __name__ == '__main__':
 
     # ── train ─────────────────────────────────────────────────────────────────
     t_acc, t_loss, v_acc, v_loss = train(net, criterion, train_loader, valid_loader,
-                                         optimizer, args.max_epoch, valid_interval=5)
+                                         optimizer, args.max_epoch, valid_interval=1)
     save_final_model(net, args.exp_id, args.rand_seed)
     save_logs(t_acc, t_loss, v_acc, v_loss, args.exp_id, args.rand_seed)
